@@ -14,6 +14,9 @@
 #include <dlfcn.h>
 #endif
 
+static constexpr ms_ubyte_t k_x86_function_prolog[] = {0x55, 0x8b, 0xec};
+static constexpr ms_ubyte_t k_mov_ecx_abs[] = {0x8b, 0x0d};
+
 // hooks
 #define prot_hook(name, type) \
 struct name { \
@@ -183,19 +186,19 @@ static void hooks_init()
 #ifdef WIN32
     MH_Initialize();
 
-    hook(level_init_pre_entity, ctx.client.find_string("(mapname)", MEMSCAN_FIRST_MATCH, {0x55, 0x8b, 0xec}, MEMSCAN_FIRST_MATCH, MS_FOLLOW_DIRECTION_BACKWARDS));
-    hook(level_shutdown, ctx.client.find_string("(mapname)", MEMSCAN_FIRST_MATCH, {0x55, 0x8b, 0xec}, 1, MS_FOLLOW_DIRECTION_FORWARDS));
-    hook(create_move, ctx.client.find_pattern("55 8B EC 56 8B F1 57 8B 7D 0C 8B 8E", MEMSCAN_FIRST_MATCH));
-    hook(fire_event_intern, ctx.engine.find_string("FireEvent: event '%s' not registered.\n", MEMSCAN_FIRST_MATCH, {0x55, 0x8b, 0xec}, MEMSCAN_FIRST_MATCH, MS_FOLLOW_DIRECTION_BACKWARDS));
-    hook(set_image_data_r8g8b8a8, ctx.panorama.find_string("CImageData::SetImageDataR8G8B8A8", MEMSCAN_FIRST_MATCH, {0x55, 0x8b, 0xec}, MEMSCAN_FIRST_MATCH, MS_FOLLOW_DIRECTION_BACKWARDS));
+    hook(level_init_pre_entity, ctx.client.find_string<ms_uptr_t, false>("(mapname)", MEMSCAN_FIRST_MATCH, k_x86_function_prolog, MEMSCAN_FIRST_MATCH, MS_FOLLOW_DIRECTION_BACKWARDS));
+    hook(level_shutdown, ctx.client.find_string<ms_uptr_t, false>("(mapname)", MEMSCAN_FIRST_MATCH, k_x86_function_prolog, 1, MS_FOLLOW_DIRECTION_FORWARDS));
+    hook(create_move, ctx.client.find_pattern<ms_uptr_t>("55 8B EC 56 8B F1 57 8B 7D 0C 8B 8E", MEMSCAN_FIRST_MATCH));
+    hook(fire_event_intern, ctx.engine.find_string<ms_uptr_t, false>("FireEvent: event '%s' not registered.\n", MEMSCAN_FIRST_MATCH, k_x86_function_prolog, MEMSCAN_FIRST_MATCH, MS_FOLLOW_DIRECTION_BACKWARDS));
+    hook(set_image_data_r8g8b8a8, ctx.panorama.find_string<ms_uptr_t, false>("CImageData::SetImageDataR8G8B8A8", MEMSCAN_FIRST_MATCH, k_x86_function_prolog, MEMSCAN_FIRST_MATCH, MS_FOLLOW_DIRECTION_BACKWARDS));
 
     MH_EnableHook(MH_ALL_HOOKS);
 #else
-    hook(level_init_pre_entity, ctx.client.find_pattern("55 48 89 E5 53 48 89 F3 48 83 EC 08 C6 05 CC CC CC CC CC", MEMSCAN_FIRST_MATCH));
-    hook(level_shutdown, ctx.client.find_pattern("55 48 89 E5 41 54 49 89 FC 53 48 8B 1D CC CC CC CC 48 89 DF", MEMSCAN_FIRST_MATCH));
-    hook(create_move, ctx.client.find_pattern("55 0F 28 C8 48 89 E5 41 54 49 89 F4", MEMSCAN_FIRST_MATCH));
-    hook(fire_event_intern, rel_to_abs<void*>(ctx.engine.find_pattern("E9 CC CC CC CC 90 66 66 66 2E 0F 1F 84 CC CC CC CC CC 55 B9 CC CC CC CC", MEMSCAN_FIRST_MATCH).value() + 1));
-    hook(set_image_data_r8g8b8a8, rel_to_abs<void*>(ctx.panorama.find_pattern("E8 CC CC CC CC 84 C0 41 88 44 24 CC", MEMSCAN_FIRST_MATCH).value() + 1));
+    hook(level_init_pre_entity, ctx.client.find_pattern<ms_uptr_t>("55 48 89 E5 53 48 89 F3 48 83 EC 08 C6 05 CC CC CC CC CC", MEMSCAN_FIRST_MATCH));
+    hook(level_shutdown, ctx.client.find_pattern<ms_uptr_t>("55 48 89 E5 41 54 49 89 FC 53 48 8B 1D CC CC CC CC 48 89 DF", MEMSCAN_FIRST_MATCH));
+    hook(create_move, ctx.client.find_pattern<ms_uptr_t>("55 0F 28 C8 48 89 E5 41 54 49 89 F4", MEMSCAN_FIRST_MATCH));
+    hook(fire_event_intern, rel_to_abs<void*>(ctx.engine.find_pattern<ms_uptr_t>("E9 CC CC CC CC 90 66 66 66 2E 0F 1F 84 CC CC CC CC CC 55 B9 CC CC CC CC", MEMSCAN_FIRST_MATCH).value() + 1));
+    hook(set_image_data_r8g8b8a8, rel_to_abs<void*>(ctx.panorama.find_pattern<ms_uptr_t>("E8 CC CC CC CC 84 C0 41 88 44 24 CC", MEMSCAN_FIRST_MATCH).value() + 1));
 #endif
 }
 
@@ -220,12 +223,12 @@ static void ctx_init()
     LOG("panorama: %x %x\n", ctx.panorama.get_start(), ctx.panorama.get_end());
 
 #ifdef WIN32
-    auto panorama = ctx.panorama.find_pattern("B9 CC CC CC CC 56 FF 50 40 8B", MEMSCAN_FIRST_MATCH);
+    auto panorama = ctx.panorama.find_pattern<ms_uptr_t>("B9 CC CC CC CC 56 FF 50 40 8B", MEMSCAN_FIRST_MATCH);
     if (panorama.has_value())
         ctx.i.panorama = *(tsf::panorama_t **)(panorama.value() + 1);
 #else
     // there is a different panorama lib for vulkan
-    auto panorama_gl = ctx.panorama.find_pattern("48 8B 05 CC CC CC CC 48 8D 1D CC CC CC CC", MEMSCAN_FIRST_MATCH);
+    auto panorama_gl = ctx.panorama.find_pattern<ms_uptr_t>("48 8B 05 CC CC CC CC 48 8D 1D CC CC CC CC", MEMSCAN_FIRST_MATCH);
     if (panorama_gl.has_value())
         ctx.i.panorama = **rel_to_abs<tsf::panorama_t***>(panorama_gl.value() + 3);
 #endif
@@ -233,11 +236,11 @@ static void ctx_init()
         (void)(LOG("Failed init (panorama interface nil)\n"), exit(0));
 
 #ifdef WIN32
-    auto cvars = ctx.engine.find_string("sv_skyname", 3, {0x8b, 0x0d}, MEMSCAN_FIRST_MATCH, MS_FOLLOW_DIRECTION_BACKWARDS);
+    auto cvars = ctx.engine.find_string<ms_uptr_t, false>("sv_skyname", 3, k_mov_ecx_abs, MEMSCAN_FIRST_MATCH, MS_FOLLOW_DIRECTION_BACKWARDS);
     if (cvars.has_value())
         ctx.i.cvars = **(tsf::cvars_t ***)(cvars.value() + 2);
 #else
-    auto cvars = ctx.engine.find_pattern("48 8B 05 CC CC CC CC C6 05 CC CC CC CC CC 48 8D 35 CC CC CC CC", MEMSCAN_FIRST_MATCH);
+    auto cvars = ctx.engine.find_pattern<ms_uptr_t>("48 8B 05 CC CC CC CC C6 05 CC CC CC CC CC 48 8D 35 CC CC CC CC", MEMSCAN_FIRST_MATCH);
     if (cvars.has_value())
         ctx.i.cvars = **rel_to_abs<tsf::cvars_t***>(cvars.value() + 3);
 #endif
@@ -245,11 +248,11 @@ static void ctx_init()
         (void)(LOG("Failed init (cvars interface nil)\n"), exit(0));
 
 #ifdef WIN32
-    auto compare_extension = ctx.panorama.find_pattern("55 8B EC 53 57 8B 7D 08 85", MEMSCAN_FIRST_MATCH);
+    auto compare_extension = ctx.panorama.find_pattern<ms_uptr_t>("55 8B EC 53 57 8B 7D 08 85", MEMSCAN_FIRST_MATCH);
     if (compare_extension.has_value())
         ctx.f.compare_extension = (decltype(ctx.f.compare_extension))compare_extension.value();
 #else
-    auto compare_extension_gl = ctx.panorama.find_pattern("E8 CC CC CC CC 80 78 03 7B", MEMSCAN_FIRST_MATCH);
+    auto compare_extension_gl = ctx.panorama.find_pattern<ms_uptr_t>("E8 CC CC CC CC 80 78 03 7B", MEMSCAN_FIRST_MATCH);
     if (compare_extension_gl.has_value())
         ctx.f.compare_extension = rel_to_abs<decltype(ctx.f.compare_extension)>(compare_extension_gl.value() + 1);
 #endif
